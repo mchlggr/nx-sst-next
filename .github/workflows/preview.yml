@@ -1,0 +1,106 @@
+name: Preview Deployment
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, closed]
+
+jobs:
+  deploy:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    env:
+      STAGE: pr-${{ github.event.pull_request.number }}
+      ENVIRONMENT_NAME: pr-${{ github.event.pull_request.number }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 2
+
+      - name: Cache dependencies
+        id: cache
+        uses: actions/cache@v3
+        with:
+          path: ./node_modules
+          key: node-modules-${{ hashFiles('bun.lockb') }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.11.1
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 1.1.1
+
+      - name: Install dependencies
+        run: bun i
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.STAGING_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.STAGING_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.STAGING_AWS_REGION }}
+
+      - name: Setup SST
+        run: curl -fsSL https://ion.sst.dev/install | bash
+
+      - name: Load domain
+        run: echo "DOMAIN_NAME=$(grep DOMAIN_NAME .env | cut -d '=' -f2)" >> $GITHUB_ENV
+
+      - name: Deploy preview
+        env:
+          AUTH_JWT_SECRET: ${{ secrets.AUTH_JWT_SECRET }}
+        run: sst deploy --stage=$STAGE
+
+      - name: Comment preview URL
+        uses: actions/github-script@v7
+        env:
+          DOMAIN_NAME: ${{ env.DOMAIN_NAME }}
+          STAGE: ${{ env.STAGE }}
+        with:
+          script: |
+            const url = `https://${process.env.STAGE}-nx-sst-next.${process.env.DOMAIN_NAME}`;
+            const body = `Preview deployed: ${url}`;
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body
+            });
+
+  destroy:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    env:
+      STAGE: pr-${{ github.event.pull_request.number }}
+      ENVIRONMENT_NAME: pr-${{ github.event.pull_request.number }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.11.1
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 1.1.1
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.STAGING_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.STAGING_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.STAGING_AWS_REGION }}
+
+      - name: Setup SST
+        run: curl -fsSL https://ion.sst.dev/install | bash
+
+      - name: Remove preview
+        env:
+          AUTH_JWT_SECRET: ${{ secrets.AUTH_JWT_SECRET }}
+        run: sst remove --stage=$STAGE
