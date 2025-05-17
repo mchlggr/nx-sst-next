@@ -24,3 +24,21 @@ Or simply using NX
 npx nx run admin:deploy:staging
 npx nx run admin:deploy:production
 ```
+
+## GitHub Secrets
+
+The GitHub Actions workflow requires several secrets to deploy preview
+environments.  Create these secrets in your repository under
+`Settings` → `Secrets and variables` → `Actions`.
+
+| Secret | Description |
+| ------ | ----------- |
+| `STAGING_AWS_ACCESS_KEY_ID` | AWS access key for deploying previews |
+| `STAGING_AWS_SECRET_ACCESS_KEY` | AWS secret key for deploying previews |
+| `STAGING_AWS_REGION` | AWS region where the preview stack will be created |
+| `DOMAIN_NAME` | Root domain used for preview URLs |
+| `AUTH_JWT_SECRET` | JWT secret for the SST app |
+
+These secrets allow the `.github/workflows/preview.yml` workflow to deploy a
+preview stack for each pull request and comment the URL on the PR. When the pull
+request is closed the stack is automatically removed.
